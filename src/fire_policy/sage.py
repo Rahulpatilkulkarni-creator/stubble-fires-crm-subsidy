@@ -19,6 +19,7 @@ Two honest limits of this source:
 from __future__ import annotations
 
 import glob
+import itertools
 import re
 import sys
 
@@ -129,6 +130,80 @@ def build_sage_panel(save: bool = True, season_months=None) -> pd.DataFrame:
     if save:
         out = C.PROCESSED_DIR / "fire_sage_district_year.csv"
         panel.to_csv(out, index=False)
+    return panel
+
+
+# --------------------------------------------------------------------------- #
+# Weekly panel (prediction target). The grid is fixed across years, so the
+# cell -> district area weights are computed once and reused for every week.
+# --------------------------------------------------------------------------- #
+def cell_district_weights(districts: gpd.GeoDataFrame | None = None) -> pd.DataFrame:
+    """Area fraction of each 0.25 deg grid cell inside each district (computed once).
+
+    Returns lon, lat, state, district, weight  where weight = intersection_area /
+    cell_area. A cell straddling two districts yields multiple rows; weights over a
+    cell sum to <=1 (shortfall = area outside Punjab/Haryana).
+    """
+    districts = districts if districts is not None else _districts_layer()
+    paths = sorted(p for p in glob.glob(str(SAGE_DIR / "SAGE_*.nc"))
+                   if _year_from_path(p))
+    with xr.open_dataset(paths[0]) as ds:
+        lons, lats = ds["lon"].values, ds["lat"].values
+    coords = list(itertools.product([float(x) for x in lons], [float(y) for y in lats]))
+    geom = [box(x - _CELL_HALF, y - _CELL_HALF, x + _CELL_HALF, y + _CELL_HALF)
+            for x, y in coords]
+    gcells = gpd.GeoDataFrame(
+        {"lon": [c[0] for c in coords], "lat": [c[1] for c in coords]},
+        geometry=geom, crs=4326)
+    gcells["cell_area"] = gcells.to_crs(_EQUAL_AREA).area.to_numpy()
+    inter = gpd.overlay(gcells, districts, how="intersection")
+    if inter.empty:
+        return pd.DataFrame(columns=["lon", "lat", "state", "district", "weight"])
+    inter["weight"] = inter.to_crs(_EQUAL_AREA).area.to_numpy() / inter["cell_area"]
+    return inter[["lon", "lat", "state", "district", "weight"]]
+
+
+def build_sage_weekly_panel(save: bool = True, season_months=None) -> pd.DataFrame:
+    """All SAGE years -> balanced district x (year, iso_week) burned-mass panel."""
+    season_months = tuple(season_months or C.BURNING_SEASON_MONTHS)
+    weights = cell_district_weights()
+    keys = weights[["state", "district"]].drop_duplicates()
+    paths = sorted(p for p in glob.glob(str(SAGE_DIR / "SAGE_*.nc"))
+                   if _year_from_path(p))
+
+    frames, year_weeks = [], []
+    for path in paths:
+        year = _year_from_path(path)
+        with xr.open_dataset(path) as ds:
+            df = ds["DM"].to_dataframe(name="dm_kg").reset_index()
+        df["time"] = pd.to_datetime(df["time"])
+        df = df[df["time"].dt.month.isin(season_months) & (df["dm_kg"] > 0)].copy()
+        df["iso_week"] = df["time"].dt.isocalendar().week.astype(int)
+
+        # full set of season weeks for this year (so zero-burning weeks are kept)
+        srange = pd.date_range(f"{year}-{min(season_months):02d}-01",
+                               f"{year}-{max(season_months):02d}-30")
+        for wk in srange.isocalendar().week.astype(int).unique():
+            year_weeks.append((year, int(wk)))
+
+        cw = df.groupby(["lon", "lat", "iso_week"])["dm_kg"].sum().reset_index()
+        merged = cw.merge(weights, on=["lon", "lat"], how="inner")
+        merged["dm_alloc"] = merged["dm_kg"] * merged["weight"]
+        g = (merged.groupby(["state", "district", "iso_week"])["dm_alloc"].sum()
+             .reset_index().rename(columns={"dm_alloc": "dm_kg"}))
+        g["year"] = year
+        frames.append(g)
+
+    panel = pd.concat(frames, ignore_index=True)
+    yw = pd.DataFrame(sorted(set(year_weeks)), columns=["year", "iso_week"])
+    grid = (keys.assign(_k=1).merge(yw.assign(_k=1), on="_k").drop(columns="_k"))
+    panel = grid.merge(panel, on=["state", "district", "year", "iso_week"], how="left")
+    panel["dm_kg"] = panel["dm_kg"].fillna(0.0)
+    panel["dm_tonnes"] = panel["dm_kg"] / 1000.0
+    panel = (panel[["state", "district", "year", "iso_week", "dm_kg", "dm_tonnes"]]
+             .sort_values(["state", "district", "year", "iso_week"]).reset_index(drop=True))
+    if save:
+        panel.to_csv(C.PROCESSED_DIR / "fire_sage_district_week.csv", index=False)
     return panel
 
 

@@ -211,6 +211,91 @@ def build_weather_panel(years=None, season_months=None, save: bool = True,
     return panel
 
 
+def build_weather_weekly_panel(years=range(2012, 2019), season_months=(9, 10, 11),
+                               save: bool = True, resume: bool = True,
+                               polite_sleep: float = 1.5) -> pd.DataFrame:
+    """District x (year, iso_week) weather features for the prediction model.
+
+    One ERA5 archive pull per district over the whole span, filtered to the pre/peak
+    burning months (Sep-Nov) and aggregated to ISO weeks. These weekly drivers gate
+    *when* residue can burn and whether smoke clears -- the resolution the EDA showed
+    matters (seasonal weather barely correlates with seasonal burning, but weekly
+    dryness/wind gate the daily timing). Resumable, keyless.
+    """
+    from fire_policy.geo import district_centroids
+    season_months = tuple(season_months)
+    pts = district_centroids()
+    daily_vars = ["temperature_2m_max", "temperature_2m_min", "precipitation_sum",
+                  "wind_speed_10m_max", "et0_fao_evapotranspiration"]
+    out = C.PROCESSED_DIR / "weather_district_week.csv"
+    cols = ["state", "district", "year", "iso_week", "tmax_mean", "tmin_mean",
+            "precip_sum", "rain_days", "dry_days", "wind_max_mean", "wind_calm_days",
+            "et0_sum", "n_days"]
+
+    existing = pd.read_csv(out) if (resume and out.exists()) else pd.DataFrame()
+    done = set(existing["district"]) if len(existing) else set()
+    panel = existing.copy()
+
+    def _weekly(days: pd.DataFrame, state: str, district: str) -> pd.DataFrame:
+        d = days.copy()
+        d["year"] = d["date"].dt.year
+        d["iso_week"] = d["date"].dt.isocalendar().week.astype(int)
+        g = d.groupby(["year", "iso_week"]).agg(
+            tmax_mean=("temperature_2m_max", "mean"),
+            tmin_mean=("temperature_2m_min", "mean"),
+            precip_sum=("precipitation_sum", "sum"),
+            rain_days=("precipitation_sum", lambda x: int((x > 1).sum())),
+            dry_days=("precipitation_sum", lambda x: int((x < 0.2).sum())),
+            wind_max_mean=("wind_speed_10m_max", "mean"),
+            wind_calm_days=("wind_speed_10m_max", lambda x: int((x < 10).sum())),
+            et0_sum=("et0_fao_evapotranspiration", "sum"),
+            n_days=("date", "count"),
+        ).reset_index()
+        g["state"], g["district"] = state, district
+        return g
+
+    def _save(p: pd.DataFrame) -> None:
+        (p[cols].drop_duplicates(["district", "year", "iso_week"])
+         .sort_values(["state", "district", "year", "iso_week"])
+         .to_csv(out, index=False))
+
+    # One light request per (district, year) season window -- small calls dodge the
+    # rate limiter, and we persist after every district so a run is resumable/watchable.
+    for i, r in enumerate(pts.itertuples(index=False), 1):
+        if r.district in done:
+            continue
+        parts, ok = [], True
+        for y in years:
+            s0 = f"{y}-{min(season_months):02d}-01"
+            s1 = f"{y}-{max(season_months):02d}-30"
+            try:
+                d = fetch_archive(r.lat, r.lon, s0, s1, daily=daily_vars, hourly=[])
+            except Exception as exc:
+                print(f"  ! [{i}/{len(pts)}] {r.district} {y} failed: {exc}",
+                      file=sys.stderr, flush=True)
+                ok = False
+                break
+            if not d.empty:
+                parts.append(d)
+            time.sleep(polite_sleep)
+        if not ok or not parts:
+            continue
+        g = _weekly(pd.concat(parts, ignore_index=True), r.state, r.district)
+        panel = pd.concat([panel, g], ignore_index=True)
+        done.add(r.district)
+        if save:
+            _save(panel)
+        print(f"  [{i}/{len(pts)}] {r.district}: {len(g)} district-weeks "
+              f"(saved; {panel['district'].nunique()} districts done)",
+              file=sys.stderr, flush=True)
+
+    if len(panel):
+        panel = (panel[cols].drop_duplicates(["district", "year", "iso_week"])
+                 .sort_values(["state", "district", "year", "iso_week"])
+                 .reset_index(drop=True))
+    return panel
+
+
 def main() -> None:
     # Demo: last burning season (Oct–Nov 2023) across the anchor points.
     try:
