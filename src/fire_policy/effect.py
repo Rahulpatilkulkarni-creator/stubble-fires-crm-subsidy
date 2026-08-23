@@ -21,8 +21,9 @@ delivered by email). Everything else is built. With the key it is a one-command 
 
     FIRMS_MAP_KEY=<key>  PYTHONPATH=src python -m fire_policy.effect
 
-Outputs: data/processed/fire_firms_district_year.csv, causal_effect_firms.csv ;
-         reports/figures/12_did_effect.png
+Outputs: data/processed/fire_firms_district_year.csv (the consistent outcome panel),
+         causal_effect_firms.csv (headline DiD + the FINDINGS Q2 robustness table) ;
+         reports/figures/12_did_effect.png (event study), 13_aggregate_trend.png
 """
 from __future__ import annotations
 
@@ -113,6 +114,32 @@ def load_effect_frame(rebuild: bool = False) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # Estimate + figure
 # --------------------------------------------------------------------------- #
+def _robustness_rows(df: pd.DataFrame, policy_year: int) -> list[dict]:
+    """The specifications quoted in FINDINGS Q2 — all from the cached FIRMS frame.
+
+    Each is a separate dose-response DiD; none needs the network or weather. Reported
+    alongside the headline so the robustness table in the write-up is reproducible from
+    this one command.
+    """
+    specs: list[dict] = []
+
+    def add(label: str, d: pd.DataFrame) -> None:
+        r = CA.estimate_did(d, policy_year=policy_year)
+        specs.append({"spec": label, "beta": float(r.params["dose_post"]),
+                      "se": float(r.std_errors["dose_post"]),
+                      "p": float(r.pvalues["dose_post"]), "N": int(r.nobs)})
+
+    add("Punjab only", df[df["is_punjab"] == 1])
+    add("Drop 2020-21 (COVID/protests)", df[~df["year"].isin([2020, 2021])])
+    frp = df.copy(); frp["log_dm"] = np.log1p(frp["frp_sum"])
+    add("Outcome = log(1+FRP sum)", frp)
+    binr = df.copy(); binr["dose_z"] = (binr["dose_z"] > 0).astype(float)
+    add("Binary dose (above own-state mean)", binr)
+    shr = df.copy(); shr["dose_z"] = shr["crm_share"]
+    add("Dose = share of state machines", shr)
+    return specs
+
+
 def run_effect(policy_year: int = CA.ONSET_YEAR, controls=None,
                rebuild: bool = False) -> dict:
     """Dose-response DiD on the consistent FIRMS outcome; headline β + dynamics."""
@@ -141,9 +168,16 @@ def run_effect(policy_year: int = CA.ONSET_YEAR, controls=None,
         else:
             print("  (weather controls skipped — ERA5 panel does not cover the post years)")
 
+    # robustness panel — the exact specifications quoted in FINDINGS Q2
+    rows += _robustness_rows(df, policy_year)
+    print("\nRobustness (each a separate DiD; all zero-to-positive, none a reduction):")
+    for r in rows[1:]:
+        print(f"    {r['spec']:34s} beta={r['beta']:+.4f} (p={r['p']:.3f}, N={r['N']})")
+
     # full dynamic event study (pre + post), reference = year before onset
     res_ev, ev = CA.pretrends_event_study(df, years=yrs, ref_year=policy_year - 1, save=False)
     _fig_effect(ev, policy_year)
+    _fig_aggregate(df, policy_year)
 
     pd.DataFrame(rows).to_csv(OUT_RESULTS, index=False)
     print(f"\nSaved -> {OUT_RESULTS.relative_to(C.PROJECT_ROOT)} ; "
@@ -156,9 +190,41 @@ def run_effect(policy_year: int = CA.ONSET_YEAR, controls=None,
     return {"beta": float(beta), "p": float(res.pvalues["dose_post"]), "event_study": ev}
 
 
+def _fig_aggregate(df: pd.DataFrame, policy_year: int) -> None:
+    """Total burning-season detections by state over the whole horizon.
+
+    Context the dose-response DiD cannot show: a year-fixed-effect design absorbs any
+    common post-policy trend, so this aggregate fall (or rise) is invisible to beta —
+    the DiD only tests whether *higher-dose* districts fell *more*.
+    """
+    agg = (df.groupby(["state", "year"])["fire_count"].sum()
+           .reset_index())
+    pre = df[df["year"] < policy_year].groupby("state")["fire_count"].sum() / \
+        df[df["year"] < policy_year]["year"].nunique()
+    post = df[df["year"] >= policy_year].groupby("state")["fire_count"].sum() / \
+        df[df["year"] >= policy_year]["year"].nunique()
+
+    fig, ax = plt.subplots(figsize=(11, 7))
+    colors = {"Punjab": "#d1495b", "Haryana": "#30638e"}
+    for st, s in agg.groupby("state"):
+        chg = 100 * (post[st] / pre[st] - 1)
+        ax.plot(s["year"], s["fire_count"] / 1e3, marker="o", lw=2.5,
+                color=colors.get(st), label=f"{st}  ({chg:+.0f}% post vs pre-mean)")
+    ax.axvline(policy_year - 0.5, color="gray", ls="--", lw=1.5)
+    ax.text(policy_year - 0.6, ax.get_ylim()[1] * 0.55, "CRM scale-up", color="gray",
+            fontsize=10, ha="right")
+    ax.set(xlabel="Year", ylabel="Burning-season fire detections (thousands)",
+           title="Aggregate burning fell after 2018 — but the DiD can't credit the subsidy\n"
+                 "(year fixed effects absorb this common trend; only the dose contrast is tested)")
+    ax.legend(title="Oct–Nov VIIRS detections", loc="upper right")
+    ax.figure.text(0.99, 0.01, "Source: NASA FIRMS VIIRS-SNPP. The differential (dose-response) "
+                   "effect is separately ~0 (fig 12).", ha="right", fontsize=8, color="gray")
+    fig.tight_layout()
+    fig.savefig(C.FIGURES_DIR / "13_aggregate_trend.png", dpi=140)
+    plt.close(fig)
+
+
 def _fig_effect(ev: pd.DataFrame, policy_year: int) -> None:
-    import seaborn as sns
-    sns.set_theme(style="whitegrid", context="talk")
     fig, ax = plt.subplots(figsize=(11, 7))
     ax.axhline(0, color="gray", lw=1, ls=":")
     ax.axvline(policy_year - 0.5, color="#d1495b", lw=1.5, ls="--")
@@ -170,7 +236,7 @@ def _fig_effect(ev: pd.DataFrame, policy_year: int) -> None:
     ax.set(xlabel="Year", ylabel="dose × year coefficient (95% CI)",
            title="Dose-response effect of the CRM subsidy on burning\n"
                  "(FIRMS VIIRS active fire, consistent 2012+ outcome)")
-    ax.figure.text(0.99, 0.01, "Post-onset points below 0 ⇒ higher-dose districts cut "
+    ax.figure.text(0.99, 0.01, "Post-onset points below 0 -> higher-dose districts cut "
                    "burning more. Source: NASA FIRMS + PPCB/Haryana CRM.",
                    ha="right", fontsize=8, color="gray")
     fig.tight_layout()
@@ -185,11 +251,12 @@ def main() -> None:
         pass
     from fire_policy import firms
 
-    if not firms.get_map_key():
+    if not firms.get_map_key() and not FIRMS_PANEL.exists():
         print("=" * 72)
-        print("CAUSAL EFFECT — one credential away")
+        print("CAUSAL EFFECT — needs the FIRMS outcome (no cached panel found)")
         print("=" * 72)
-        print("This is the single external credential the pipeline cannot self-serve.\n")
+        print("A free FIRMS MAP_KEY is needed once to build the outcome; after that the")
+        print("cached panel lets the DiD rebuild offline.\n")
         print("  1. Get a free FIRMS MAP_KEY (emailed):")
         print("       https://firms.modaps.eosdis.nasa.gov/api/area/  -> 'Get MAP_KEY'")
         print("  2. Put it in .env at the project root:")
@@ -200,7 +267,10 @@ def main() -> None:
         print("district-year outcome, and run the dose-response DiD — β, SEs, event study.")
         return
 
-    print("Building consistent FIRMS VIIRS district-year outcome (2012+) and estimating DiD…\n")
+    if FIRMS_PANEL.exists():
+        print("Using cached FIRMS VIIRS district-year outcome (2012-2023); estimating DiD…\n")
+    else:
+        print("Building consistent FIRMS VIIRS district-year outcome (2012+) and estimating DiD…\n")
     run_effect()
 
 

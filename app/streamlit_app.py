@@ -1,17 +1,11 @@
-"""Interactive dashboard for the stubble-fire × CRM-subsidy project.
+"""Streamlit dashboard for the stubble-burning / crop-residue-subsidy project.
 
-Two questions, two tabs, plus an about page — all reading the *processed* panels this
-pipeline produces (no re-computation, no network):
+Everything here reads the processed panels the pipeline already wrote (data/processed),
+so the app is just a view layer: no model training, no network calls at runtime.
 
-  1. "Where next?"  — the district×week early-warning model: an interactive hotspot map
-     (predicted vs actual), a watchlist, and live skill metrics.
-  2. "Did it work?" — the dose-response DiD story: the targeting confound, parallel
-     pre-trends, and the honest status of the effect estimate (Punjab-only; one FIRMS key
-     from a real number).
+Run it with the project venv:
 
-Run from the project root:
-
-    PYTHONPATH=src .venv/Scripts/python -m streamlit run app/streamlit_app.py
+    .venv/Scripts/python -m streamlit run app/streamlit_app.py
 """
 from __future__ import annotations
 
@@ -28,8 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PROC = ROOT / "data" / "processed"
 FIGS = ROOT / "reports" / "figures"
 
-st.set_page_config(page_title="Stubble fires vs. the CRM subsidy",
+st.set_page_config(page_title="Stubble fires & the crop-residue subsidy",
                    page_icon="🔥", layout="wide")
+
 
 # --------------------------------------------------------------------------- #
 # Data loading (cached)
@@ -45,11 +40,6 @@ def load_targeting() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_treatment() -> pd.DataFrame:
-    return pd.read_csv(PROC / "treatment_district.csv")
-
-
-@st.cache_data(show_spinner=False)
 def load_geojson() -> dict:
     with open(PROC / "pb_hr_districts.geojson", encoding="utf-8") as fh:
         return json.load(fh)
@@ -57,7 +47,7 @@ def load_geojson() -> dict:
 
 @st.cache_data(show_spinner=False)
 def load_effect() -> pd.DataFrame | None:
-    """The real DiD estimate — present only after a FIRMS key has been supplied."""
+    """The DiD estimate. Only exists once effect.py has been run with a FIRMS key."""
     fp = PROC / "causal_effect_firms.csv"
     return pd.read_csv(fp) if fp.exists() else None
 
@@ -67,8 +57,8 @@ def fig_path(name: str) -> Path | None:
     return p if p.exists() else None
 
 
-def _skill_metrics(d: pd.DataFrame) -> dict:
-    """R², Spearman, top-decile ROC-AUC and precision@k over a set of district-weeks."""
+def skill_metrics(d: pd.DataFrame) -> dict:
+    """R2, Spearman, top-decile ROC-AUC and precision@k over a set of district-weeks."""
     out = {"r2": float("nan"), "spearman": float("nan"),
            "auc": float("nan"), "prec": float("nan")}
     if len(d) < 5:
@@ -92,18 +82,33 @@ def _skill_metrics(d: pd.DataFrame) -> dict:
     return out
 
 
-DISTRICTS = None  # populated after geojson load
+# --------------------------------------------------------------------------- #
+# Sidebar — a bit of context so the app feels owned, not auto-generated
+# --------------------------------------------------------------------------- #
+with st.sidebar:
+    st.markdown("### About")
+    st.write(
+        "A portfolio project on the paddy-stubble fires in Punjab and Haryana, and the "
+        "crop-residue-management (CRM) subsidy meant to curb them."
+    )
+    st.write(
+        "I built it from raw sources: SAGE-IGP satellite fire grids, ERA5 weather, and "
+        "the actual government subsidy records (PPCB and Haryana CRM plans). No "
+        "pre-cleaned analysis file."
+    )
+    st.caption("The full write-up is in reports/FINDINGS.md; the code is in src/fire_policy/.")
 
 
 # --------------------------------------------------------------------------- #
 # Header
 # --------------------------------------------------------------------------- #
-st.title("🔥 Stubble fires vs. the crop-residue subsidy")
-st.markdown(
-    "**Punjab & Haryana, the fires behind Delhi's November smog.** "
-    "Two questions from raw satellite grids and primary subsidy records: *can we predict "
-    "next season's hotspots*, and *did the equipment subsidy actually put them out?* "
-    "See [`reports/FINDINGS.md`](https://github.com/) for the full write-up."
+st.title("Stubble fires and the crop-residue subsidy")
+st.write(
+    "Every autumn, farmers across Punjab and Haryana get two or three weeks to clear rice "
+    "stubble before sowing wheat, and the cheapest way to do it is to set it alight. That "
+    "smoke is a big part of why Delhi's air turns hazardous every November. I wanted to "
+    "answer two things with the raw data: can you see next season's hotspots coming, and "
+    "did the machinery subsidy actually reduce the burning?"
 )
 
 pred = load_predictions()
@@ -111,40 +116,40 @@ geo = load_geojson()
 DISTRICTS = sorted({f["properties"]["district"] for f in geo["features"]})
 
 tab_pred, tab_causal, tab_about = st.tabs(
-    ["🔥  Where next? — early warning",
-     "📉  Did it work? — the causal design",
-     "📄  Data & method"]
+    ["Forecasting the hotspots", "Did the subsidy work?", "Data & method"]
 )
 
 # =========================================================================== #
-# TAB 1 — Early warning
+# TAB 1 — prediction
 # =========================================================================== #
 with tab_pred:
-    st.subheader("Week-ahead hotspot early warning")
-    st.caption(
-        "A district×week LightGBM model (train 2012–16, test 2017–18) on the Oct–Nov "
-        "burning window. It runs on fire *persistence* + the crop calendar + district "
-        "identity — **not** weather (an 8-variable ERA5 block adds ΔR² = +0.004). "
-        "Everything below is the held-out test period."
+    st.subheader("Week-ahead hotspot forecast")
+    st.write(
+        "I model burning at the district-by-ISO-week level over the Oct-Nov season, "
+        "training on 2012-16 and holding out 2017-18. The signal comes almost entirely "
+        "from fire persistence (what burned last week), the crop calendar, and which "
+        "district it is. Weather turns out to barely matter here: adding an 8-variable "
+        "ERA5 block changes R² by about +0.004. Everything below is the held-out period."
     )
 
     c1, c2, c3 = st.columns([1, 1, 2])
-    year = c1.selectbox("Season (year)", sorted(pred["year"].unique()), index=len(pred["year"].unique()) - 1)
+    year = c1.selectbox("Season", sorted(pred["year"].unique()),
+                        index=len(pred["year"].unique()) - 1)
     weeks = sorted(pred.loc[pred["year"] == year, "iso_week"].unique())
-    # ISO week 44–45 is the early-November peak — default the slider there if present.
+    # week 44-45 is the early-November peak; start there if it's in range
     default_wk = 44 if 44 in weeks else weeks[len(weeks) // 2]
     week = c2.select_slider("ISO week", options=weeks, value=default_wk)
-    view = c3.radio("Map layer", ["Predicted", "Actual"], horizontal=True,
-                    help="Predicted = the model's week-ahead nowcast; Actual = observed SAGE burned mass.")
+    view = c3.radio("Layer", ["Predicted", "Actual"], horizontal=True,
+                    help="Predicted is the model's week-ahead call; Actual is the observed SAGE burned mass.")
 
     val_col = "pred_tonnes" if view == "Predicted" else "dm_tonnes"
 
-    # slice + complete to all 43 districts so the map is never patchy
+    # fill out all 43 districts so the map isn't patchy on quiet weeks
     slc = pred[(pred["year"] == year) & (pred["iso_week"] == week)]
     full = pd.DataFrame({"district": DISTRICTS}).merge(slc, on="district", how="left")
     full["value"] = full[val_col].fillna(0.0)
     full["value_log"] = np.log1p(full["value"])
-    # stable color range across weeks (global max of the chosen layer, this year)
+    # keep the colour scale fixed across weeks so the map is comparable week to week
     gmax = np.log1p(pred.loc[pred["year"] == year, val_col].max())
 
     mc, wc = st.columns([3, 2])
@@ -161,66 +166,68 @@ with tab_pred:
                           coloraxis_colorbar=dict(title=f"{view}<br>tonnes (log)"))
         fig.update_traces(marker_line_width=0.4, marker_line_color="white")
         st.plotly_chart(fig, width="stretch")
-        st.caption(f"**{view} burned mass — {year}, ISO week {week}.** "
-                   "Hover for tonnes. Grey = no data / zero.")
+        st.caption(f"{view} burned mass, {year} week {week}. Hover for tonnes; grey districts had none.")
 
     with wc:
-        st.markdown(f"**🚨 Watchlist — top districts, week {week}**")
+        st.markdown(f"**Top predicted districts, week {week}**")
         wl = slc.sort_values("pred_tonnes", ascending=False).head(10).copy()
         if not wl.empty:
-            # flag whether each predicted-hot district is *actually* in the week's top decile
+            # did each predicted-hot district actually land in the week's top decile?
             thr = slc["dm_tonnes"].quantile(0.90)
-            wl["actually hot"] = np.where(wl["dm_tonnes"] >= thr, "✅", "—")
-            show = wl[["district", "state", "pred_tonnes", "dm_tonnes", "actually hot"]].rename(
+            wl["top decile"] = wl["dm_tonnes"] >= thr
+            show = wl[["district", "state", "pred_tonnes", "dm_tonnes", "top decile"]].rename(
                 columns={"pred_tonnes": "predicted t", "dm_tonnes": "actual t"})
             st.dataframe(
                 show.style.format({"predicted t": "{:,.0f}", "actual t": "{:,.0f}"}),
                 hide_index=True, width="stretch", height=396,
             )
+            st.caption("A rough watchlist: where I'd send inspectors that week. "
+                       "'Top decile' flags whether it really was among the worst.")
         else:
             st.info("No rows for this week.")
 
-    # ---- live skill metrics for the whole selected season -------------------
-    st.markdown("##### Model skill this season (all weeks)")
+    st.markdown("##### How good is it, over the whole season?")
     d = pred[pred["year"] == year].dropna(subset=["pred_log", "log_dm"])
-    m = _skill_metrics(d)
+    m = skill_metrics(d)
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("R² (log)", f"{m['r2']:.2f}")
     k2.metric("Spearman", f"{m['spearman']:.2f}")
-    k3.metric("ROC-AUC (top-10%)", f"{m['auc']:.2f}")
+    k3.metric("ROC-AUC (top 10%)", f"{m['auc']:.2f}")
     k4.metric("Precision@k", f"{m['prec']:.2f}")
-    st.caption(
-        "Computed live from `predictions_district_week.csv`. ROC-AUC / precision are for "
-        "catching each season's worst-decile district-weeks — the operational target."
-    )
+    st.caption("These are recomputed live from the predictions file each time you switch "
+               "seasons. ROC-AUC and precision are about catching the worst-decile "
+               "district-weeks, which is really what an early-warning tool has to get right.")
 
-    with st.expander("Why weather barely helps (the ablation)"):
-        st.markdown(
-            "Adding an 8-variable ERA5 weather block moves the operational model by "
-            "**ΔR² = +0.004** and *hurts* the no-persistence structural model by **−0.09**. "
-            "The burn decision tracks the harvest calendar and economics; weather only gates "
-            "whether a fire *can* be lit. An operational dashboard needs last week's fire "
-            "counts and the calendar — not a weather feed."
+    with st.expander("Why weather barely helps (I checked)"):
+        st.write(
+            "I ran the model with and without an 8-variable ERA5 weather block. It moves "
+            "the operational model by about +0.004 R², and actually hurts the "
+            "no-persistence version by 0.09. That fits the story: the decision to burn is "
+            "driven by the harvest calendar and economics, not the weather. Weather only "
+            "decides whether a fire can be lit, not where the burning concentrates. So an "
+            "early-warning tool needs last week's fire counts and the calendar, not a "
+            "weather feed."
         )
         fi = fig_path("06_feature_importance.png")
         if fi:
-            st.image(str(fi), caption="Feature importance — persistence + calendar + district dominate.")
+            st.image(str(fi), caption="Feature importance: persistence, district and calendar dominate.")
 
 # =========================================================================== #
-# TAB 2 — Causal design
+# TAB 2 — causal
 # =========================================================================== #
 with tab_causal:
     st.subheader("Did the subsidy reduce burning?")
-    st.caption(
-        "A **dose-response difference-in-differences**: treatment is a *continuous* CRM "
-        "intensity (machines per district, harmonised to a within-state z-score), not an "
-        "on/off switch. District + year fixed effects, district-clustered SEs."
+    st.write(
+        "This is a dose-response difference-in-differences. Treatment isn't on/off; it's "
+        "how many CRM machines a district received, standardized to a within-state z-score "
+        "so Punjab's actual counts and Haryana's targets sit on the same scale. The model "
+        "has district and year fixed effects, with standard errors clustered by district."
     )
 
     tg = load_targeting()
 
-    st.markdown("##### 1 · The subsidy was aimed at the worst-burning districts")
-    # within-state Spearman, computed live
+    st.markdown("##### The money went to the worst-burning districts")
+
     def _sp(sub):
         return sub["dose_z"].corr(sub["pre_log_dm"], method="spearman")
     sp_pb = _sp(tg[tg["is_punjab"] == 1])
@@ -234,106 +241,129 @@ with tab_causal:
             tg2, x="dose_z", y="pre_log_dm", color="state",
             size=tg2["crm_machines"].clip(lower=1), hover_name="district",
             color_discrete_map={"Punjab": "#d1495b", "Haryana": "#3c6e47"},
-            labels={"dose_z": "CRM intensity  (within-state z-score)",
-                    "pre_log_dm": "pre-period burning  (log dry matter)"},
+            labels={"dose_z": "CRM intensity (within-state z-score)",
+                    "pre_log_dm": "pre-period burning (log dry matter)"},
             height=460,
         )
-        # overall OLS guide line (numpy — no statsmodels dependency)
         b, a = np.polyfit(tg2["dose_z"], tg2["pre_log_dm"], 1)
         xs = np.linspace(tg2["dose_z"].min(), tg2["dose_z"].max(), 50)
-        fig.add_trace(go.Scatter(x=xs, y=a + b * xs, mode="lines", name="overall fit",
+        fig.add_trace(go.Scatter(x=xs, y=a + b * xs, mode="lines", name="fit",
                                  line=dict(color="gray", dash="dash")))
         fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), legend_title="")
         st.plotly_chart(fig, width="stretch")
     with sc2:
-        st.metric("Spearman — Punjab", f"+{sp_pb:.2f}")
-        st.metric("Spearman — Haryana", f"+{sp_hr:.2f}")
-        st.markdown(
-            "Machines flowed to districts already burning most. **Good targeting, but a "
-            "textbook confound** — a naive treated-vs-untreated comparison would blame the "
-            "subsidy for the fires it was *sent to fight*. Hence a within-district DiD."
+        st.metric("Rank corr., Punjab", f"+{sp_pb:.2f}")
+        st.metric("Rank corr., Haryana", f"+{sp_hr:.2f}")
+        st.write(
+            "Machines went where burning was already highest. Sensible as policy, but a "
+            "problem for identification: a plain treated-vs-control comparison would make "
+            "the subsidy look like it *caused* the fires it was sent to fight. That's why "
+            "I use a within-district design that nets out each district's baseline."
         )
 
     st.divider()
-    st.markdown("##### 2 · Parallel pre-trends hold — the design is credible")
+    st.markdown("##### The pre-trends are only *partly* clean — a caveat I won't hide")
     ev1, ev2 = st.columns(2)
     p10 = fig_path("10_pretrends_eventstudy.png")
     p11 = fig_path("11_highlow_trajectories.png")
     if p10:
-        ev1.image(str(p10), caption="Event study, clean pre-period (2012–17). Every dose×year "
-                                    "CI spans zero; joint pre-trend test p = 0.18.")
+        ev1.image(str(p10), caption="Pooled pre-period event study (SAGE): dose-by-year "
+                                    "coefficients mostly span zero (joint p = 0.18; p = 0.08 on the FIRMS outcome).")
     if p11:
-        ev2.image(str(p11), caption="High- vs low-dose district trajectories move together "
-                                    "before the policy.")
-    st.markdown(
-        "Placebo DiDs return null (fake-2015 onset β = −0.16, p = 0.13; the 2018 onset "
-        "before machines deployed β = +0.08, p = 0.62). The estimator does **not** "
-        "manufacture an effect where none should exist."
+        ev2.image(str(p11), caption="High- and low-dose districts track each other before the policy.")
+    st.write(
+        "Pooled across both states the pre-trends look parallel. But within **Punjab** — where "
+        "the dose actually varies — the joint pre-trend test **fails (p = 0.005)**: the "
+        "highest-intensity districts were already on a steeper burning path before the policy. "
+        "That's a real limit on the causal reading below. The placebos, at least, behave: a "
+        "fake 2015 onset gives β = −0.16 (p = 0.13) and the 2018 onset β = +0.08 (p = 0.62), so "
+        "the estimator isn't inventing effects where there shouldn't be any."
     )
 
     st.divider()
-    st.markdown("##### 3 · The effect estimate")
+    st.markdown("##### The effect: no dose-response reduction")
     eff = load_effect()
     if eff is not None and len(eff):
         row = eff.iloc[0]
         b, p, n = float(row["beta"]), float(row["p"]), int(row["N"])
         m1, m2, m3 = st.columns(3)
-        m1.metric("dose × post  (β)", f"{b:+.3f}")
-        m2.metric("p-value", f"{p:.3f}")
-        m3.metric("N (district-years)", f"{n}")
-        verdict = ("higher-intensity districts cut burning **more** after the subsidy"
-                   if b < 0 else "**no reduction** detected (β ≥ 0)")
-        st.success(f"β = {b:+.3f} → {verdict}.")
+        m1.metric("dose × post (β)", f"{b:+.3f}")
+        m2.metric("p-value", f"{p:.2f}")
+        m3.metric("district-years", f"{n}")
+        if b < 0 and p < 0.05:
+            st.write(f"β = {b:+.3f} (p = {p:.2f}). Higher-intensity districts cut their burning "
+                     f"more than lower-intensity ones after the subsidy scaled up.")
+        else:
+            st.write(
+                f"β = {b:+.3f} (p = {p:.2f}), on a consistent FIRMS fire outcome spanning "
+                "2012–2023. There's **no dose-response reduction** — the estimate is a precise "
+                "zero, if anything faintly positive, and stays zero-to-positive across every "
+                "specification I tried (Punjab-only, dropping the 2020–21 COVID/protest years, "
+                "FRP intensity, binary treatment). The 95% CI rules out reductions bigger than "
+                "about 10% per standard deviation of dose, but can't separate a small effect "
+                "from none."
+            )
+        ec1, ec2 = st.columns(2)
         f12 = fig_path("12_did_effect.png")
         if f12:
-            st.image(str(f12), caption="Dynamic dose-response effect (consistent FIRMS 2012+ outcome).")
-    else:
-        st.warning(
-            "**Effect estimate pending one credential.** SAGE-IGP stops in 2018 — the "
-            "subsidy's scale-up year — so the keyless record has no post-treatment outcome. "
-            "`fire_policy/effect.py` rebuilds a *consistent* NASA FIRMS VIIRS outcome across "
-            "2012+ (not a SAGE→FIRMS splice) and runs the same estimator. The analytic path "
-            "is verified end-to-end on synthetic data (recovers a known β). It needs a free "
-            "FIRMS `MAP_KEY` (emailed on signup), then one command:\n\n"
-            "```bash\nFIRMS_MAP_KEY=<key>  PYTHONPATH=src python -m fire_policy.effect\n```"
+            ec1.image(str(f12), caption="Dose-response effect by year: post-2018 coefficients "
+                                        "bounce around zero, with no downward drift as machines accumulate.")
+        f13 = fig_path("13_aggregate_trend.png")
+        if f13:
+            ec2.image(str(f13), caption="Aggregate burning did fall after 2018 (Haryana −44%, "
+                                        "Punjab −18%) — but year effects absorb that, so the DiD can't credit the subsidy.")
+        st.write(
+            "The honest reading is two-sided: **burning fell** across both states after the "
+            "scale-up, but **not in proportion to how many machines a district received** — the "
+            "only thing this design can actually test. That aggregate decline is equally "
+            "consistent with enforcement, straw-market alternatives, weather, or the subsidy "
+            "working uniformly; what the data rule out is the specific *more machines here → "
+            "less fire here* mechanism."
         )
-    st.info(
-        "⚠️ **Read this before quoting any effect:** the identifying variation is "
-        "**effectively Punjab-only**. Haryana's dose is near-uniform (one-year targets "
-        "≈403/district), so it contributes almost no cross-sectional intensity contrast. "
-        "The estimate really asks *“did Punjab's higher-intensity districts cut burning "
-        "more?”* — not a clean two-state average."
+    else:
+        st.info(
+            "The DiD estimate (`causal_effect_firms.csv`) isn't present. Rebuild it with a free "
+            "FIRMS key: `FIRMS_MAP_KEY=... python -m fire_policy.effect` pulls a consistent VIIRS "
+            "fire outcome across 2012–2023 and runs the estimator."
+        )
+    st.warning(
+        "The caveat to keep in mind before quoting the number: identification is effectively "
+        "Punjab-only (Haryana's doses are near-uniform, ~403 machines per district), and within "
+        "Punjab the pre-trends fail (p = 0.005) — the highest-dose districts were already "
+        "trending differently. So this is best read as *no evidence of a dose-response effect*, "
+        "not a clean causal zero."
     )
 
 # =========================================================================== #
-# TAB 3 — Data & method
+# TAB 3 — data & method
 # =========================================================================== #
 with tab_about:
-    st.subheader("Data & method")
-    st.markdown(
-        "Built end-to-end from **raw satellite grids and primary government records** — "
-        "no pre-cleaned analysis CSV."
-    )
+    st.subheader("Where the data comes from")
+    st.write("Everything is built from raw sources and primary records. There's no "
+             "ready-made analysis CSV underneath this.")
     st.markdown(
         "| Layer | Source | Coverage | Access |\n"
         "|---|---|---|---|\n"
-        "| Fire (burned mass) | **SAGE-IGP** (Harvard Dataverse, CC0) | 2003–2018, 0.25° daily | keyless |\n"
-        "| Weather | **Open-Meteo ERA5** | 2012–2018, daily→weekly | keyless |\n"
-        "| Treatment (CRM machines) | **PPCB MIS** + **Haryana CRM plan** | 2018–2022, district | primary PDFs |\n"
-        "| Geography | **geoBoundaries** ADM2 (CC-BY) | 43 districts | keyless |\n"
-        "| *Post-2018 fire (to finish DiD)* | *NASA FIRMS Area API* | *2012+* | *free `MAP_KEY` (emailed)* |\n"
+        "| Fire (burned mass) | SAGE-IGP (Harvard Dataverse, CC0) | 2003-2018, 0.25° daily | keyless |\n"
+        "| Weather | Open-Meteo ERA5 | 2012-2018, daily to weekly | keyless |\n"
+        "| Treatment (CRM machines) | PPCB MIS + Haryana CRM plan | 2018-2022, district | primary PDFs |\n"
+        "| Geography | geoBoundaries ADM2 (CC-BY) | 43 districts | keyless |\n"
+        "| Post-2018 fire (causal outcome) | NASA FIRMS VIIRS-SNPP archive | 2012-2023, district | free key |\n"
     )
-    st.markdown(
-        "**The 2018 wall.** The keyless fire inventory ends exactly at the treatment year. "
-        "That is fine for prediction (train 2012–16, test 2017–18) and every *pre-period* "
-        "causal check; the post-treatment outcome is the one thing gated on a credential."
+    st.write(
+        "One thing worth calling out: the SAGE fire inventory ends exactly at 2018, the "
+        "treatment year — fine for forecasting (train 2012-16, test 2017-18) and every "
+        "pre-period check, but with no post-treatment outcome of its own. Rather than splice "
+        "two products at the treatment boundary, the causal leg builds a single, consistent "
+        "FIRMS VIIRS fire outcome across 2012–2023 (one free key, used once) and runs the DiD "
+        "on that."
     )
 
-    st.markdown("##### Where the burning is (descriptive)")
+    st.markdown("##### A couple of descriptive views")
     a1, a2 = st.columns(2)
     for col, name, cap in [
-        (a1, "01_state_trend.png", "Punjab is 86% of the two-state total."),
-        (a2, "04_seasonal_timing.png", "Sharp peak in ISO weeks 44–45 (early November)."),
+        (a1, "01_state_trend.png", "Punjab is about 86% of the two-state total."),
+        (a2, "04_seasonal_timing.png", "The burning spikes hard in ISO weeks 44-45, early November."),
     ]:
         p = fig_path(name)
         if p:
@@ -341,21 +371,22 @@ with tab_about:
 
     hp = ROOT / "reports" / "hotspot_map.html"
     if hp.exists():
-        with st.expander("Interactive hotspot map (folium)"):
+        with st.expander("Interactive hotspot map"):
             st.iframe(hp, height=560)
 
-    st.markdown("##### Reproduce")
+    st.markdown("##### Reproducing it")
+    st.write("Each stage writes to data/processed and can be re-run on its own:")
     st.code(
-        "python -m fire_policy.geo         # district layer\n"
-        "python -m fire_policy.sage        # fire panels\n"
+        "python -m fire_policy.geo         # build the district layer\n"
+        "python -m fire_policy.sage        # fire panels from the SAGE grids\n"
         "python -m fire_policy.weather     # ERA5 weekly weather\n"
-        "python -m fire_policy.treatment   # harmonised CRM dose\n"
-        "python -m fire_policy.eda         # figures 01–04\n"
-        "python -m fire_policy.predict     # figures 05–08 + ablation\n"
-        "python -m fire_policy.causal      # figures 09–11 + DiD checks\n"
-        "python -m fire_policy.effect      # figure 12 + effect (needs FIRMS key)",
+        "python -m fire_policy.treatment   # the CRM dose panel\n"
+        "python -m fire_policy.eda         # descriptive figures\n"
+        "python -m fire_policy.predict     # the forecast model + weather ablation\n"
+        "python -m fire_policy.causal      # targeting, pre-trends, placebos\n"
+        "python -m fire_policy.effect      # the DiD effect (needs a FIRMS key)",
         language="bash",
     )
-    st.caption("Honest limitations: 0.25° fire resolution is coarse for small districts; "
-               "treatment is actual machines (Punjab) vs one-year targets (Haryana); the "
-               "causal leg is a validated design + verified estimator, awaiting the FIRMS key.")
+    st.caption("Known limitations: the fire grid is coarse (0.25°) for small districts; "
+               "Punjab's treatment is actual machines while Haryana's is one-year targets; "
+               "and, as noted, the cross-district variation is mostly Punjab's.")

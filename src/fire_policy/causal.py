@@ -25,16 +25,17 @@ WHAT THIS MODULE CAN DO WITH KEYLESS DATA (SAGE-IGP ends in 2018, the onset year
      almost no machines were yet deployed by the Oct-Nov burning season) should both
      return beta ~ 0. They do -> the estimator is not manufacturing an effect.
 
-WHAT REQUIRES ONE EXTERNAL CREDENTIAL:
+HOW THE ACTUAL EFFECT IS ESTIMATED (delivered in effect.py):
 
-  The *actual* treatment effect needs a post-onset district-year fire outcome. SAGE-IGP
-  stops in 2018; the keyless FIRMS feeds are 7-day-only; the PPCB action-plan PDF holds
-  only blank reporting templates + state-level totals. The clean fix is NOT to splice
-  SAGE (pre) onto FIRMS (post) -- that would confound an inter-product level shift with
-  the policy effect. Instead `effect.py` rebuilds a *consistent* NASA FIRMS VIIRS outcome
-  across the whole 2012+ horizon (needs a free FIRMS MAP_KEY, self-issued but emailed) and
-  runs this same `estimate_did()` on it -- one command:
-      FIRMS_MAP_KEY=<key>  PYTHONPATH=src python -m fire_policy.effect
+  The treatment effect needs a post-onset district-year fire outcome. SAGE-IGP stops in
+  2018; the keyless FIRMS feeds are 7-day-only; the PPCB action-plan PDF holds only blank
+  reporting templates + state-level totals. The clean fix is NOT to splice SAGE (pre) onto
+  FIRMS (post) -- that would confound an inter-product level shift with the policy effect.
+  Instead `effect.py` rebuilds a *consistent* NASA FIRMS VIIRS outcome across the whole
+  2012-2023 horizon (one free FIRMS MAP_KEY, used once then cached) and runs this same
+  `estimate_did()` on it. Result: dose x post beta = +0.04 (p=0.58) -- NO dose-response
+  reduction (see effect.py and reports/FINDINGS.md Q2). Reproduce:
+      PYTHONPATH=src python -m fire_policy.effect
 
 Inputs : data/processed/fire_sage_district_year.csv, treatment_district.csv,
          weather_district_week.csv
@@ -336,14 +337,16 @@ def main() -> None:
     print(f"    2018 onset + weather controls:            {_fmt(res_on_c)}")
     print("    (SAGE ends 2018, so '2018 onset' is a placebo, not the treatment effect.)\n")
 
-    # 4. Ready-to-run --------------------------------------------------------
-    print("[4] REAL TREATMENT EFFECT — one credential + one command away")
+    # 4. The delivered effect ------------------------------------------------
+    print("[4] REAL TREATMENT EFFECT — delivered via effect.py (consistent FIRMS 2012-2023)")
     print("    SAGE-IGP stops at 2018. Rather than splice SAGE (pre) onto FIRMS (post),")
-    print("    effect.py rebuilds a CONSISTENT NASA FIRMS VIIRS outcome across 2012+ and")
-    print("    runs this same estimate_did() on it. Get a free FIRMS MAP_KEY (emailed),")
-    print("    set FIRMS_MAP_KEY in .env, then:")
+    print("    effect.py builds a CONSISTENT NASA FIRMS VIIRS outcome across 2012-2023 and")
+    print("    runs this same estimate_did() on it. Result: dose x post beta = +0.04 (p=0.58)")
+    print("    -> NO dose-response reduction (every spec zero-to-positive; the Punjab-only")
+    print("       pre-trend fails at p=0.005, so identification is confounded, not clean).")
+    print("    Reproduce (cached offline after the first keyed pull):")
     print("        PYTHONPATH=src python -m fire_policy.effect")
-    print("    -> beta, SEs, and the dynamic event study (reports/figures/12_did_effect.png).\n")
+    print("    -> beta, SEs, dynamic event study + aggregate trend (figs 12-13).\n")
 
     print("Saved figures -> reports/figures/ (09_targeting, 10_pretrends_eventstudy,")
     print("                 11_highlow_trajectories)")

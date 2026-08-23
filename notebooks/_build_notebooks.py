@@ -215,13 +215,20 @@ confounded and a within-district DiD is required."""),
     code(img("09_targeting.png")),
     md("""## 2 · Parallel trends — the key DiD assumption
 Were high- and low-dose districts trending *together* before the policy? An event study
-over the clean pre-period (2012–17); flat, zero-spanning coefficients ⇒ assumption holds."""),
+over the clean pre-period (2012–17); flat, zero-spanning coefficients ⇒ the assumption is
+credible **when pooled**."""),
     code(
         "res_ev, ev = CA.pretrends_event_study(df, ref_year=2017)\n"
         "display(ev.round(3))\n"
         "print('Joint significance of dose x year terms: p=%.3f' % res_ev.f_statistic.pval)"
     ),
     code(img("10_pretrends_eventstudy.png", "11_highlow_trajectories.png")),
+    md("""> **Caveat carried into §4.** The pooled pre-trend above (SAGE, keyless) does not
+reject — joint **p = 0.18**. On the *FIRMS* causal outcome used in §4 the pooled test is
+similar (**p = 0.08**, with 2016 just excluding zero), **but within Punjab it fails
+(p = 0.005)**: the highest-dose districts were on a rising differential trajectory before the
+policy that continues afterward. That is the main reason the §4 effect is read as *"no
+evidence of a dose-response reduction,"* not a clean zero."""),
     md("## 3 · Placebo DiDs — do they return null?\nA fake pre-treatment policy (2015) and the 2018 onset (≈0 machines deployed by that burning season) should both give β≈0."),
     code(
         "res_pl = CA.placebo_did(df)\n"
@@ -230,31 +237,41 @@ over the clean pre-period (2012–17); flat, zero-spanning coefficients ⇒ assu
         "    print('%-18s beta=%+.4f (SE %.4f, p=%.3f)' % "
         "(name, r.params['dose_post'], r.std_errors['dose_post'], r.pvalues['dose_post']))"
     ),
-    md("""## 4 · The real effect — one credential + one command away
+    md("""## 4 · The real effect — on a consistent FIRMS outcome
 
-SAGE-IGP stops at 2018, so there is no post-treatment fire outcome in the keyless record.
-Everything else is built and validated. The clean way to get an outcome is **not** to
-splice SAGE (pre) onto FIRMS (post) — two different products meeting at the treatment
-boundary would confound an inter-product level shift with the policy effect. Instead
-[`fire_policy/effect.py`](../src/fire_policy/effect.py) rebuilds a **consistent NASA FIRMS
-VIIRS outcome across the whole 2012+ horizon** (same sensor every year) and runs this same
-`estimate_did()` on it:
+SAGE-IGP stops at 2018, so it holds no post-treatment fire outcome. The clean fix is
+**not** to splice SAGE (pre) onto FIRMS (post) — two different products meeting at the
+treatment boundary would confound an inter-product level shift with the policy effect.
+Instead [`fire_policy/effect.py`](../src/fire_policy/effect.py) rebuilds a **consistent NASA
+FIRMS VIIRS outcome across the whole 2012–2023 horizon** (same sensor every year) and runs
+this same `estimate_did()` on it. The first run needs a free NASA FIRMS `MAP_KEY`
+(self-issued, emailed); it caches the panel, so the DiD rebuilds offline afterwards:
 
 ```bash
-FIRMS_MAP_KEY=<key>  PYTHONPATH=src python -m fire_policy.effect
+PYTHONPATH=src python -m fire_policy.effect
 ```
-
-That step needs a **free NASA FIRMS `MAP_KEY`** (self-issued, emailed) — the one external
-credential this otherwise-keyless pipeline cannot self-serve. The full path (build outcome
-→ dose-response DiD → event study → fig 12) is smoke-tested on synthetic FIRMS-shaped data:
-it recovers a known β (true −0.15 → −0.166, p < 0.001) with a flat-pre / negative-post
-event study.
-
-**Conclusion:** the subsidy was *targeted* (not random), the DiD design is *credible*
-(parallel pre-trends, null placebos), and the treatment-effect estimator is fully wired and
-verified — awaiting only the FIRMS key. Note the identifying variation is **effectively
-Punjab-only** (Haryana's dose is near-uniform ≈403/district), so the estimate really asks
-whether Punjab's higher-intensity districts cut burning more."""),
+"""),
+    code(
+        "eff = pd.read_csv('data/processed/causal_effect_firms.csv')\n"
+        "firms = pd.read_csv('data/processed/fire_firms_district_year.csv')\n"
+        "print(f'FIRMS outcome panel: {len(firms)} district-years, "
+        "{firms.year.min()}-{firms.year.max()} ({firms.district.nunique()} districts)')\n"
+        "row = eff.iloc[0]\n"
+        "print('Headline DiD  dose x post beta = %+.4f (SE %.4f, p=%.3f, N=%d)' % "
+        "(row['beta'], row['se'], row['p'], int(row['N'])))\n"
+        "display(eff.round(4))"
+    ),
+    code(img("12_did_effect.png", "13_aggregate_trend.png")),
+    md("""**Conclusion — a precise null, honestly confounded.** dose × post **β = +0.04
+(p = 0.58, N = 516)**: no dose-response reduction, and every robustness spec lands
+zero-to-positive. Aggregate Oct–Nov burning *did* fall after 2018 (**Haryana −44%,
+Punjab −18%**), but a year-fixed-effect design absorbs any common trend — it can only test
+whether *higher-dose* districts fell *more*, and they didn't. Identification is genuinely
+hard here (near-perfect targeting ρ ≈ 0.88; the pre-trend *fails* within Punjab, p = 0.005;
+the usable dose variation is **effectively Punjab-only**, Haryana ≈ 403 machines/district),
+so the honest verdict is **"no detectable dose-response effect, and the quasi-experiment
+can't cleanly isolate one"** — not a clean causal zero. See
+[`reports/FINDINGS.md`](../reports/FINDINGS.md) Q2 for the full treatment."""),
 ]
 
 
