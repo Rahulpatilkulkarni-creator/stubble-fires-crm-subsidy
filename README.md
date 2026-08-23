@@ -1,5 +1,7 @@
 # 🔥 Stubble Fires vs. the Crop-Residue Subsidy
 
+[![Live demo](https://img.shields.io/badge/live_demo-streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://stubble-fires-crm.streamlit.app/) &nbsp;**→ [stubble-fires-crm.streamlit.app](https://stubble-fires-crm.streamlit.app/)**
+
 **Can we predict where farm fires will spike next season — and did India's crop-residue
 equipment subsidy actually put them out, in Punjab & Haryana?**
 
@@ -128,7 +130,8 @@ signup at <https://firms.modaps.eosdis.nasa.gov/api/area/>), put in `.env` as
 PYTHONPATH=src .venv/Scripts/python -m fire_policy.effect     # β + event study + aggregate (figs 12–13)
 ```
 
-**Explore interactively** — the dashboard reads the processed panels and figures:
+**Explore interactively** — try the **[live dashboard](https://stubble-fires-crm.streamlit.app/)**,
+or run it locally (it reads the processed panels and figures):
 
 ```bash
 PYTHONPATH=src .venv/Scripts/python -m streamlit run app/streamlit_app.py
