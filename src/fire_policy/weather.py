@@ -120,6 +120,38 @@ def fetch_archive(lat: float, lon: float, start_date: str, end_date: str,
     return daily_df
 
 
+def fetch_archive_multi(coords, start_date: str, end_date: str, daily=None,
+                        timezone: str = "Asia/Kolkata") -> pd.DataFrame:
+    """Archive daily weather for MANY points in ONE call (Open-Meteo multi-location).
+
+    coords: iterable of (key, lat, lon). Returns a long frame with a 'key' column so
+    callers can split the identity back out. Batching all points into a single request
+    keeps a full historical build to a handful of calls -- essential for staying under
+    the API's hourly request limit.
+    """
+    daily = DEFAULT_DAILY if daily is None else daily
+    coords = list(coords)
+    params = {
+        "latitude": ",".join(str(c[1]) for c in coords),
+        "longitude": ",".join(str(c[2]) for c in coords),
+        "start_date": start_date, "end_date": end_date,
+        "daily": ",".join(daily), "timezone": timezone,
+    }
+    js = _get_json(ARCHIVE_URL, params)
+    locs = js if isinstance(js, list) else [js]
+    frames = []
+    for (key, lat, lon), loc in zip(coords, locs):
+        d = loc.get("daily") if isinstance(loc, dict) else None
+        if not d or "time" not in d:
+            continue
+        f = pd.DataFrame(d)
+        f["date"] = pd.to_datetime(f["time"])
+        f = f.drop(columns=["time"])
+        f["key"], f["lat"], f["lon"] = key, lat, lon
+        frames.append(f)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def fetch_forecast(lat: float, lon: float, name: str | None = None,
                    days: int = 16, daily=None, hourly=None,
                    timezone: str = "Asia/Kolkata") -> pd.DataFrame:
@@ -213,18 +245,19 @@ def build_weather_panel(years=None, season_months=None, save: bool = True,
 
 def build_weather_weekly_panel(years=range(2012, 2019), season_months=(9, 10, 11),
                                save: bool = True, resume: bool = True,
-                               polite_sleep: float = 1.5) -> pd.DataFrame:
+                               polite_sleep: float = 1.0) -> pd.DataFrame:
     """District x (year, iso_week) weather features for the prediction model.
 
-    One ERA5 archive pull per district over the whole span, filtered to the pre/peak
-    burning months (Sep-Nov) and aggregated to ISO weeks. These weekly drivers gate
-    *when* residue can burn and whether smoke clears -- the resolution the EDA showed
-    matters (seasonal weather barely correlates with seasonal burning, but weekly
-    dryness/wind gate the daily timing). Resumable, keyless.
+    ERA5 archive aggregated to ISO weeks over the pre/peak burning window (Sep-Nov).
+    All districts are fetched together per year via the multi-location call, so a full
+    build is ~7 light requests (well under the hourly rate limit) and is saved after
+    each year (resumable/watchable). Keyless.
     """
     from fire_policy.geo import district_centroids
     season_months = tuple(season_months)
     pts = district_centroids()
+    coords = [(f"{r.state}||{r.district}", float(r.lat), float(r.lon))
+              for r in pts.itertuples(index=False)]
     daily_vars = ["temperature_2m_max", "temperature_2m_min", "precipitation_sum",
                   "wind_speed_10m_max", "et0_fao_evapotranspiration"]
     out = C.PROCESSED_DIR / "weather_district_week.csv"
@@ -233,14 +266,25 @@ def build_weather_weekly_panel(years=range(2012, 2019), season_months=(9, 10, 11
             "et0_sum", "n_days"]
 
     existing = pd.read_csv(out) if (resume and out.exists()) else pd.DataFrame()
-    done = set(existing["district"]) if len(existing) else set()
+    done_years = set(existing["year"]) if len(existing) else set()
     panel = existing.copy()
 
-    def _weekly(days: pd.DataFrame, state: str, district: str) -> pd.DataFrame:
-        d = days.copy()
-        d["year"] = d["date"].dt.year
-        d["iso_week"] = d["date"].dt.isocalendar().week.astype(int)
-        g = d.groupby(["year", "iso_week"]).agg(
+    for y in years:
+        if y in done_years:
+            continue
+        s0 = f"{y}-{min(season_months):02d}-01"
+        s1 = f"{y}-{max(season_months):02d}-30"
+        try:
+            raw = fetch_archive_multi(coords, s0, s1, daily=daily_vars)
+        except Exception as exc:
+            print(f"  ! year {y} failed: {exc}", file=sys.stderr, flush=True)
+            continue
+        if raw.empty:
+            continue
+        raw[["state", "district"]] = raw["key"].str.split(r"\|\|", expand=True, regex=True)
+        raw["year"] = raw["date"].dt.year
+        raw["iso_week"] = raw["date"].dt.isocalendar().week.astype(int)
+        g = raw.groupby(["state", "district", "year", "iso_week"]).agg(
             tmax_mean=("temperature_2m_max", "mean"),
             tmin_mean=("temperature_2m_min", "mean"),
             precip_sum=("precipitation_sum", "sum"),
@@ -251,43 +295,14 @@ def build_weather_weekly_panel(years=range(2012, 2019), season_months=(9, 10, 11
             et0_sum=("et0_fao_evapotranspiration", "sum"),
             n_days=("date", "count"),
         ).reset_index()
-        g["state"], g["district"] = state, district
-        return g
-
-    def _save(p: pd.DataFrame) -> None:
-        (p[cols].drop_duplicates(["district", "year", "iso_week"])
-         .sort_values(["state", "district", "year", "iso_week"])
-         .to_csv(out, index=False))
-
-    # One light request per (district, year) season window -- small calls dodge the
-    # rate limiter, and we persist after every district so a run is resumable/watchable.
-    for i, r in enumerate(pts.itertuples(index=False), 1):
-        if r.district in done:
-            continue
-        parts, ok = [], True
-        for y in years:
-            s0 = f"{y}-{min(season_months):02d}-01"
-            s1 = f"{y}-{max(season_months):02d}-30"
-            try:
-                d = fetch_archive(r.lat, r.lon, s0, s1, daily=daily_vars, hourly=[])
-            except Exception as exc:
-                print(f"  ! [{i}/{len(pts)}] {r.district} {y} failed: {exc}",
-                      file=sys.stderr, flush=True)
-                ok = False
-                break
-            if not d.empty:
-                parts.append(d)
-            time.sleep(polite_sleep)
-        if not ok or not parts:
-            continue
-        g = _weekly(pd.concat(parts, ignore_index=True), r.state, r.district)
         panel = pd.concat([panel, g], ignore_index=True)
-        done.add(r.district)
         if save:
-            _save(panel)
-        print(f"  [{i}/{len(pts)}] {r.district}: {len(g)} district-weeks "
-              f"(saved; {panel['district'].nunique()} districts done)",
-              file=sys.stderr, flush=True)
+            (panel[cols].drop_duplicates(["district", "year", "iso_week"])
+             .sort_values(["state", "district", "year", "iso_week"])
+             .to_csv(out, index=False))
+        print(f"  year {y}: {g['district'].nunique()} districts, {len(g)} "
+              f"district-weeks (saved)", file=sys.stderr, flush=True)
+        time.sleep(polite_sleep)
 
     if len(panel):
         panel = (panel[cols].drop_duplicates(["district", "year", "iso_week"])

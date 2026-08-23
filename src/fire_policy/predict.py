@@ -166,21 +166,29 @@ def train_eval(df: pd.DataFrame, features: list[str], label: str,
                train_years=TRAIN_YEARS, test_years=TEST_YEARS, valid_year=VALID_YEAR):
     import lightgbm as lgb
 
+    # Use only features actually present (weather may not be fetched yet -> ablation).
+    feats = [f for f in features if f in df.columns]
+    dropped = [f for f in features if f not in df.columns]
+    if dropped:
+        print(f"  [{label}] weather not present, dropping {len(dropped)} feats: "
+              f"{dropped}")
+
     fit_years = [y for y in train_years if y != valid_year]
     tr = df[df["year"].isin(fit_years)]
     va = df[df["year"] == valid_year]
     te = df[df["year"].isin(test_years)].copy()
 
-    Xtr, ytr = tr[features], tr["log_dm"]
-    Xva, yva = va[features], va["log_dm"]
-    Xte, yte = te[features], te["log_dm"]
+    Xtr, ytr = tr[feats], tr["log_dm"]
+    Xva, yva = va[feats], va["log_dm"]
+    Xte, yte = te[feats], te["log_dm"]
 
+    cat = ["district"] if "district" in feats else "auto"
     model = lgb.LGBMRegressor(
         objective="regression", n_estimators=1200, learning_rate=0.03,
         num_leaves=31, min_child_samples=20, subsample=0.8, subsample_freq=1,
         colsample_bytree=0.8, reg_lambda=1.0, random_state=42, n_jobs=-1, verbose=-1)
     model.fit(Xtr, ytr, eval_set=[(Xva, yva)], eval_metric="l2",
-              categorical_feature=["district"],
+              categorical_feature=cat,
               callbacks=[lgb.early_stopping(60, verbose=False),
                          lgb.log_evaluation(0)])
 
@@ -188,7 +196,7 @@ def train_eval(df: pd.DataFrame, features: list[str], label: str,
     m = _metrics(yte.to_numpy(), te["pred_log"].to_numpy())
     m["model"] = label
     m["best_iter"] = int(model.best_iteration_ or model.n_estimators)
-    return model, te, m
+    return model, te, m, feats
 
 
 def eval_baseline(df: pd.DataFrame, test_years=TEST_YEARS) -> dict:
@@ -288,8 +296,8 @@ def main() -> None:
     print(f"Train {TRAIN_YEARS} -> test {TEST_YEARS}\n")
 
     metrics = [eval_baseline(df)]
-    model_b, te_b, m_b = train_eval(df, BASE_FEATURES, "structural (B)")
-    model_a, te_a, m_a = train_eval(df, LAG_FEATURES, "operational (A)")
+    model_b, te_b, m_b, _ = train_eval(df, BASE_FEATURES, "structural (B)")
+    model_a, te_a, m_a, feats_a = train_eval(df, LAG_FEATURES, "operational (A)")
     metrics += [m_b, m_a]
 
     md = pd.DataFrame(metrics)[
@@ -299,7 +307,7 @@ def main() -> None:
     print(md.round(3).to_string(index=False))
 
     fig_pred_vs_actual(te_a, te_b)
-    fig_feature_importance(model_a, LAG_FEATURES)
+    fig_feature_importance(model_a, feats_a)
     fig_earlywarning_heatmap(te_a, year=2018)
     fig_metrics_bar([{**m, "model": n} for m, n in
                      [(metrics[0], "climatology"), (m_b, "structural (B)"),
