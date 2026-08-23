@@ -12,6 +12,12 @@ venv/
 # Data — raw pulls are large and re-fetchable; keep processed outputs tracked
 data/raw/*
 !data/raw/.gitkeep
+# ...except the hand-curated CRM treatment records (extracted from primary PPCB / Haryana
+# PDFs). Unlike the SAGE grids and ERA5 weather, these are NOT script-re-fetchable, so we
+# track them — and the source PDFs — to keep the treatment panel reproducible and its
+# provenance verifiable offline (government portal links rot).
+!data/raw/treatment/
+!data/raw/treatment/**
 data/interim/*
 !data/interim/.gitkeep
 

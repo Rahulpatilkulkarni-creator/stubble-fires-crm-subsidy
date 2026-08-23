@@ -1,0 +1,50 @@
+{
+  "source": "DBT Agri-Machinery MIS (agrimachinery.nic.in) public AngularJS dropdown API, accessed 2026-08-23",
+  "note": "District-level CRM target/achievement report (GetFilterReport, CHCTargetReport/GetReport) requires officer login ('you are not authenticated'); SSRS .aspx viewers (Expenditure_RPT_NEW etc.) are public but need a headless browser (ViewState postbacks). These codes are the public metadata usable to drive those reports.",
+  "financial_years_available": [
+    "2018-19",
+    "2019-20",
+    "2020-21",
+    "2021-22",
+    "2022-23",
+    "2023-24",
+    "2024-25",
+    "2025-26",
+    "2026-27"
+  ],
+  "crm_states": {
+    "Delhi": "7",
+    "Haryana": "6",
+    "Punjab": "3",
+    "Uttar Pradesh": "9"
+  },
+  "crm_scheme_id": "29",
+  "haryana_district_codes": {
+    "Ambala": "58",
+    "Bhiwani": "59",
+    "Charki Dadri": "701",
+    "Faridabad": "60",
+    "Fatehabad": "61",
+    "Gurgaon": "62",
+    "Hisar": "63",
+    "Jhajjar": "64",
+    "Jind": "65",
+    "Kaithal": "66",
+    "Karnal": "67",
+    "Kurukshetra": "68",
+    "Mahendragarh": "69",
+    "Mewat": "604",
+    "Palwal": "619",
+    "Panchkula": "70",
+    "Panipat": "71",
+    "Rewari": "72"
+  },
+  "public_endpoints": {
+    "financial_years": "https://agrimachinery.nic.in/api/dropdown/GetFinacialYear?filter=0",
+    "crm_states": "https://agrimachinery.nic.in/api/dropdown/getCRMState?filter=0",
+    "state_schemes": "https://agrimachinery.nic.in/api/dropdown/GetStateScheme?filter=<StateCode>",
+    "districts": "https://agrimachinery.nic.in/api/dropdown/GetDistrict?filter=<StateCode>"
+  },
+  "auth_gated_data_endpoint": "https://agrimachinery.nic.in/Report/Report/GetFilterReport?M={FinencialYear,StateCode,DistrictCode,SchemeID,ComponentID,...}",
+  "public_ssrs_browser_only": "https://agrimachinery.nic.in/Reports/ReportViewr.aspx?Page=Expenditure_RPT_NEW (district-wise target/expenditure; needs browser)"
+}

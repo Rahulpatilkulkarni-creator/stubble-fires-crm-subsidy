@@ -55,8 +55,13 @@ SPATIAL = ["lat", "lon", "is_punjab", "district"]
 CLIM = ["district_clim", "week_clim"]
 FIRE_LAGS = ["dm_lag1", "dm_lag2", "dm_cum", "dm_lastyear"]
 
-BASE_FEATURES = WEATHER_FEATS + WEATHER_LAGS + CALENDAR + SPATIAL + CLIM
+WEATHER_ALL = WEATHER_FEATS + WEATHER_LAGS
+BASE_FEATURES = WEATHER_ALL + CALENDAR + SPATIAL + CLIM
 LAG_FEATURES = BASE_FEATURES + FIRE_LAGS
+
+# No-weather variants (for the explicit weather ablation).
+BASE_NO_WX = [f for f in BASE_FEATURES if f not in WEATHER_ALL]
+LAG_NO_WX = [f for f in LAG_FEATURES if f not in WEATHER_ALL]
 
 
 # --------------------------------------------------------------------------- #
@@ -295,23 +300,35 @@ def main() -> None:
     print(f"Modeling frame: {len(df)} district-weeks | weather merged: {has_weather}")
     print(f"Train {TRAIN_YEARS} -> test {TEST_YEARS}\n")
 
-    metrics = [eval_baseline(df)]
-    model_b, te_b, m_b, _ = train_eval(df, BASE_FEATURES, "structural (B)")
-    model_a, te_a, m_a, feats_a = train_eval(df, LAG_FEATURES, "operational (A)")
-    metrics += [m_b, m_a]
+    base = eval_baseline(df)
 
+    # Explicit weather ablation: each model trained with and without the weather block.
+    _, te_b0, m_b0, _ = train_eval(df, BASE_NO_WX, "structural  (B, no weather)")
+    model_b, te_b, m_b, _ = train_eval(df, BASE_FEATURES, "structural  (B, +weather)")
+    _, te_a0, m_a0, _ = train_eval(df, LAG_NO_WX, "operational (A, no weather)")
+    model_a, te_a, m_a, feats_a = train_eval(df, LAG_FEATURES, "operational (A, +weather)")
+
+    metrics = [base, m_b0, m_b, m_a0, m_a]
     md = pd.DataFrame(metrics)[
         ["model", "RMSE_log", "MAE_log", "R2_log", "Spearman",
          "ROC_AUC_top10pct", "Precision@k"]]
     print("Test-set performance (2017-2018):")
     print(md.round(3).to_string(index=False))
 
+    # Marginal contribution of the weather block (with minus without).
+    print("\nMarginal value of the weather block (Δ = +weather − no-weather):")
+    for lbl, mw, m0 in [("Structural (B)", m_b, m_b0),
+                        ("Operational (A)", m_a, m_a0)]:
+        print(f"  {lbl:16s}  ΔR2_log={mw['R2_log']-m0['R2_log']:+.3f}   "
+              f"ΔSpearman={mw['Spearman']-m0['Spearman']:+.3f}   "
+              f"ΔRMSE_log={mw['RMSE_log']-m0['RMSE_log']:+.3f}")
+
     fig_pred_vs_actual(te_a, te_b)
     fig_feature_importance(model_a, feats_a)
     fig_earlywarning_heatmap(te_a, year=2018)
-    fig_metrics_bar([{**m, "model": n} for m, n in
-                     [(metrics[0], "climatology"), (m_b, "structural (B)"),
-                      (m_a, "operational (A)")]])
+    fig_metrics_bar([{**base, "model": "climatology"},
+                     {**m_b, "model": "structural (B)"},
+                     {**m_a, "model": "operational (A)"}])
 
     out = C.PROCESSED_DIR / "predictions_district_week.csv"
     keep = ["state", "district", "year", "iso_week", "dm_tonnes", "log_dm",
