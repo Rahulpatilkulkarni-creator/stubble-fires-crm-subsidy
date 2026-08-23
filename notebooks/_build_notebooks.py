@@ -230,24 +230,31 @@ over the clean pre-period (2012–17); flat, zero-spanning coefficients ⇒ assu
         "    print('%-18s beta=%+.4f (SE %.4f, p=%.3f)' % "
         "(name, r.params['dose_post'], r.std_errors['dose_post'], r.pvalues['dose_post']))"
     ),
-    md("""## 4 · The real effect — one dataset away
+    md("""## 4 · The real effect — one credential + one command away
 
-SAGE-IGP stops at 2018, so there is no post-treatment fire outcome yet. Everything else
-is built and validated. `estimate_did()` consumes a post-2018 district panel and returns
-the effect immediately:
+SAGE-IGP stops at 2018, so there is no post-treatment fire outcome in the keyless record.
+Everything else is built and validated. The clean way to get an outcome is **not** to
+splice SAGE (pre) onto FIRMS (post) — two different products meeting at the treatment
+boundary would confound an inter-product level shift with the policy effect. Instead
+[`fire_policy/effect.py`](../src/fire_policy/effect.py) rebuilds a **consistent NASA FIRMS
+VIIRS outcome across the whole 2012+ horizon** (same sensor every year) and runs this same
+`estimate_did()` on it:
 
-```python
-panel = pd.concat([sage_2012_2018, firms_2019_plus])   # [state, district, year, dm_tonnes]
-res = CA.estimate_did(panel, policy_year=2018, controls=CA.CONTROLS)
+```bash
+FIRMS_MAP_KEY=<key>  PYTHONPATH=src python -m fire_policy.effect
 ```
 
-That post-2018 panel needs a **free NASA FIRMS `MAP_KEY`** (self-issued, emailed) or an
-Earthdata login — the one external credential this otherwise-keyless pipeline cannot
-self-serve.
+That step needs a **free NASA FIRMS `MAP_KEY`** (self-issued, emailed) — the one external
+credential this otherwise-keyless pipeline cannot self-serve. The full path (build outcome
+→ dose-response DiD → event study → fig 12) is smoke-tested on synthetic FIRMS-shaped data:
+it recovers a known β (true −0.15 → −0.166, p < 0.001) with a flat-pre / negative-post
+event study.
 
 **Conclusion:** the subsidy was *targeted* (not random), the DiD design is *credible*
-(parallel pre-trends, null placebos), and the treatment-effect estimate is fully wired —
-awaiting only the post-2018 fire record."""),
+(parallel pre-trends, null placebos), and the treatment-effect estimator is fully wired and
+verified — awaiting only the FIRMS key. Note the identifying variation is **effectively
+Punjab-only** (Haryana's dose is near-uniform ≈403/district), so the estimate really asks
+whether Punjab's higher-intensity districts cut burning more."""),
 ]
 
 

@@ -26,11 +26,12 @@ no pre-cleaned analysis CSV. All figures referenced below live in
    *worse*. A within-district difference-in-differences is required, and its
    parallel-trends assumption **holds** in the data (joint pre-trend test p = 0.18).
 
-3. **The clean causal estimate is one dataset away.** The keyless fire record
-   (SAGE-IGP) stops in 2018 — the exact year the subsidy scaled up. The estimator, the
-   treatment doses, the controls and every validity check are built and passing on the
-   pre-period; dropping in a post-2018 district fire panel (one free NASA FIRMS key)
-   produces the effect estimate immediately.
+3. **The clean causal estimate is one credential + one command away.** The keyless fire
+   record (SAGE-IGP) stops in 2018 — the exact year the subsidy scaled up. The estimator,
+   the treatment doses, and every validity check are built and passing on the pre-period;
+   `fire_policy/effect.py` rebuilds a **consistent fire outcome from NASA FIRMS across the
+   whole 2012+ horizon** (not a SAGE→FIRMS splice) and runs the same DiD — verified end to
+   end on synthetic data, awaiting only a free FIRMS key.
 
 ---
 
@@ -172,22 +173,32 @@ Assigning a **fake policy in 2015** (all pre-treatment) yields β = −0.16 (p =
 season — yields β = +0.08 (p = 0.62), unchanged by weather controls (β = +0.09, p = 0.59).
 The estimator does **not** manufacture an effect where none should exist.
 
-### Finding 4 — The real estimate awaits one dataset
+### Finding 4 — The real estimate is one credential + one command away
 
-Everything needed for the causal answer is built and validated on the pre-period. The
-missing ingredient is a **post-2018 district-year fire outcome**. `estimate_did()` is
-written to consume exactly that:
+Everything needed for the causal answer is built and validated. The missing ingredient is
+a **post-onset fire outcome** — and the clean way to get one is *not* to splice SAGE (pre)
+onto FIRMS (post). Two different products meeting exactly at the 2018 treatment boundary
+would confound any inter-product level shift with the policy effect. Instead
+[`fire_policy/effect.py`](../src/fire_policy/effect.py) rebuilds a **single, consistent
+outcome from NASA FIRMS VIIRS active-fire detections across the entire 2012+ horizon**
+(pre *and* post — same sensor, same processing every year), then runs the identical
+`estimate_did()` on it:
 
-```python
-from fire_policy.causal import estimate_did, CONTROLS
-panel = pd.concat([sage_2012_2018, firms_2019_plus])   # [state, district, year, dm_tonnes]
-res = estimate_did(panel, policy_year=2018, controls=CONTROLS)   # → β, SE, p, event study
+```bash
+FIRMS_MAP_KEY=<key>  PYTHONPATH=src python -m fire_policy.effect
 ```
 
-That post-2018 panel needs a **free NASA FIRMS `MAP_KEY`** (self-issued, but delivered by
-email) or an Earthdata login — the single external credential this otherwise fully-keyless
-pipeline cannot self-serve. With it, the same code that passed every placebo produces the
-treatment effect and its dynamics.
+The full analytic path — build district-year outcome → dose-response DiD → dynamic event
+study → `reports/figures/12_did_effect.png` — is wired and **smoke-tested on synthetic
+FIRMS-shaped data**: it recovers a known β (true −0.15 → estimated −0.166, p < 0.001) with
+a flat-pre / negative-post event study. The only thing standing between it and a real
+number is a **free NASA FIRMS `MAP_KEY`** (self-issued, delivered by email) — the single
+external credential this otherwise fully-keyless pipeline cannot self-serve.
+
+One caveat carries straight into the effect: the identifying variation is **effectively
+Punjab-only**. Haryana's dose is near-uniform (one-year targets ≈403/district), so it adds
+almost no cross-sectional intensity contrast — the estimate is really *"did Punjab's
+higher-intensity districts cut burning more?"*, not a two-state average.
 
 ---
 

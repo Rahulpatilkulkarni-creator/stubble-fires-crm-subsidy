@@ -27,12 +27,14 @@ WHAT THIS MODULE CAN DO WITH KEYLESS DATA (SAGE-IGP ends in 2018, the onset year
 
 WHAT REQUIRES ONE EXTERNAL CREDENTIAL:
 
-  The *actual* treatment effect needs a post-2018 district-year fire outcome. SAGE-IGP
+  The *actual* treatment effect needs a post-onset district-year fire outcome. SAGE-IGP
   stops in 2018; the keyless FIRMS feeds are 7-day-only; the PPCB action-plan PDF holds
-  only blank reporting templates + state-level totals. A post-2018 district panel needs
-  a free NASA FIRMS MAP_KEY (self-issued, but delivered by email) or an Earthdata login.
-  `estimate_did()` is written to consume exactly that panel and emit the real beta +
-  an event study the moment it is dropped in -- see the printout in main().
+  only blank reporting templates + state-level totals. The clean fix is NOT to splice
+  SAGE (pre) onto FIRMS (post) -- that would confound an inter-product level shift with
+  the policy effect. Instead `effect.py` rebuilds a *consistent* NASA FIRMS VIIRS outcome
+  across the whole 2012+ horizon (needs a free FIRMS MAP_KEY, self-issued but emailed) and
+  runs this same `estimate_did()` on it -- one command:
+      FIRMS_MAP_KEY=<key>  PYTHONPATH=src python -m fire_policy.effect
 
 Inputs : data/processed/fire_sage_district_year.csv, treatment_district.csv,
          weather_district_week.csv
@@ -335,14 +337,13 @@ def main() -> None:
     print("    (SAGE ends 2018, so '2018 onset' is a placebo, not the treatment effect.)\n")
 
     # 4. Ready-to-run --------------------------------------------------------
-    print("[4] REAL TREATMENT EFFECT — awaiting post-2018 district fire outcomes")
-    print("    SAGE-IGP stops at 2018. To estimate the true dose-response effect, supply")
-    print("    a post-2018 district-year panel [state, district, year, dm_tonnes] and call:")
-    print("        from fire_policy.causal import estimate_did, load_causal_frame")
-    print("        panel = pd.concat([sage_2012_2018, firms_2019_plus])")
-    print("        res = estimate_did(panel, policy_year=2018, controls=CONTROLS)")
-    print("    That post panel needs a free FIRMS MAP_KEY (self-issued, emailed) or an")
-    print("    Earthdata login — the one external credential this pipeline cannot self-serve.\n")
+    print("[4] REAL TREATMENT EFFECT — one credential + one command away")
+    print("    SAGE-IGP stops at 2018. Rather than splice SAGE (pre) onto FIRMS (post),")
+    print("    effect.py rebuilds a CONSISTENT NASA FIRMS VIIRS outcome across 2012+ and")
+    print("    runs this same estimate_did() on it. Get a free FIRMS MAP_KEY (emailed),")
+    print("    set FIRMS_MAP_KEY in .env, then:")
+    print("        PYTHONPATH=src python -m fire_policy.effect")
+    print("    -> beta, SEs, and the dynamic event study (reports/figures/12_did_effect.png).\n")
 
     print("Saved figures -> reports/figures/ (09_targeting, 10_pretrends_eventstudy,")
     print("                 11_highlow_trajectories)")

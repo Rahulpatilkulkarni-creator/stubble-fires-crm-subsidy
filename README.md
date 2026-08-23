@@ -27,9 +27,11 @@ figures.**
   correlation **+0.86 Punjab / +0.69 Haryana**) — good policy, but a confound that makes a
   within-district DiD essential. Its **parallel-trends assumption holds** (joint pre-trend
   test p = 0.18) and **placebo DiDs return null**.
-- **The clean causal estimate is one dataset away**: the keyless fire record ends in 2018,
-  the subsidy's scale-up year. The estimator and all validity checks pass on the
-  pre-period; a post-2018 fire panel (one free NASA FIRMS key) yields the effect directly.
+- **The clean causal estimate is one credential + one command away**: the keyless fire
+  record ends in 2018, the subsidy's scale-up year. The estimator and all validity checks
+  pass; [`effect.py`](src/fire_policy/effect.py) rebuilds a **consistent NASA FIRMS outcome
+  across the whole 2012+ horizon** (not a SAGE→FIRMS splice) and runs the same DiD —
+  end-to-end verified on synthetic data, one free FIRMS key from a real number.
 
 ## Why this is different
 
@@ -61,8 +63,11 @@ src/fire_policy/
   treatment.py   # PPCB + Haryana CRM records → harmonised district dose panel
   predict.py     # district×week LightGBM early-warning model + weather ablation
   causal.py      # dose-response DiD: targeting, parallel-trends, placebos, estimator
+  effect.py      # DiD finisher: consistent FIRMS 2012+ outcome → β + event study (needs key)
   eda.py         # descriptive figures + interactive hotspot map
   firms.py       # NASA FIRMS fetchers (wired for the post-2018 extension)
+app/
+  streamlit_app.py  # interactive dashboard: early-warning hotspots + causal design
 data/            # raw / interim / processed   (raw is gitignored, re-fetchable)
 reports/         # FINDINGS.md + figures/ (01–11) + hotspot_map.html
 notebooks/       # 01_data → 02_eda → 03_prediction → 04_causal (narrative walk-throughs)
@@ -103,6 +108,20 @@ PYTHONPATH=src .venv/Scripts/python -m fire_policy.predict    # figures 05–08 
 PYTHONPATH=src .venv/Scripts/python -m fire_policy.causal     # figures 09–11 + DiD checks
 ```
 
+**Finish the causal effect** (the one key-gated step). Get a free NASA FIRMS `MAP_KEY`
+(emailed on signup at <https://firms.modaps.eosdis.nasa.gov/api/area/>), put it in `.env`
+as `FIRMS_MAP_KEY=...`, then:
+
+```bash
+PYTHONPATH=src .venv/Scripts/python -m fire_policy.effect     # β + event study (fig 12)
+```
+
+**Explore interactively** — the dashboard reads the processed panels and figures:
+
+```bash
+PYTHONPATH=src .venv/Scripts/python -m streamlit run app/streamlit_app.py
+```
+
 ## Status
 
 - [x] **Data** — SAGE-IGP fire panels (301 district-years, 2,838 district-weeks); ERA5
@@ -112,9 +131,13 @@ PYTHONPATH=src .venv/Scripts/python -m fire_policy.causal     # figures 09–11 
   early-warning evaluation (figs 05–08).
 - [x] **Causal (design + pre-period)** — treatment doses, targeting analysis,
   parallel-trends event study, placebo DiDs, ready-to-run estimator (figs 09–11).
-- [ ] **Causal (effect)** — awaits a post-2018 district fire outcome (free FIRMS
-  `MAP_KEY`); `estimate_did()` produces β + event study on drop-in.
+- [ ] **Causal (effect)** — the one step gated on an external credential (free FIRMS
+  `MAP_KEY`). [`effect.py`](src/fire_policy/effect.py) rebuilds a consistent FIRMS 2012+
+  outcome and runs the DiD in one command; analytic path verified end-to-end on synthetic
+  data (recovers a known β), awaiting only the key.
 - [x] **Notebooks** — four executed, figure-embedded walk-throughs (01_data → 04_causal).
+- [x] **Dashboard** — Streamlit app: interactive early-warning hotspots + causal-design
+  walk-through (`app/streamlit_app.py`).
 
 ## Honest caveats
 

@@ -24,3 +24,10 @@ linearmodels>=5.3      # PanelOLS / two-way fixed effects for DiD
 # ---- Notebooks ----
 jupyter>=1.0
 ipykernel>=6.25
+nbclient>=0.9          # deterministic notebook execution in _build_notebooks.py
+nbformat>=5.9
+
+# ---- Dashboard (app/streamlit_app.py) ----
+streamlit>=1.40
+plotly>=5.24           # choropleth_map (maplibre) for the hotspot map
+
