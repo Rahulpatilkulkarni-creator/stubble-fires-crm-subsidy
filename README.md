@@ -2,68 +2,72 @@
 
 [![Live demo](https://img.shields.io/badge/live_demo-streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://stubble-fires-crm.streamlit.app/) &nbsp;**→ [stubble-fires-crm.streamlit.app](https://stubble-fires-crm.streamlit.app/)**
 
-**Can we predict where farm fires will spike next season — and did India's crop-residue
-equipment subsidy actually put them out, in Punjab & Haryana?**
+**Can we predict where farm fires will spike next season, and did India's crop-residue
+equipment subsidy actually put them out in Punjab and Haryana?**
 
-Every October–November, farmers across Punjab and Haryana burn paddy stubble to clear
-fields for wheat. The smoke drives Delhi's annual air-quality emergency. From 2018-19 the
-government scaled up the **Crop-Residue-Management (CRM) scheme**, subsidising machines —
-the **Happy Seeder**, Super Seeder, balers — that let farmers sow without burning. This
-project answers two questions with raw data, end to end:
+Every October and November, farmers across Punjab and Haryana burn paddy stubble to clear
+their fields for wheat. The smoke is a big part of why Delhi's air turns hazardous each
+winter. From 2018-19 the government scaled up the Crop-Residue-Management (CRM) scheme,
+which subsidises machines — the Happy Seeder, Super Seeder, balers — that let farmers sow
+without burning first.
 
-1. **Predictive — where next?** A **district × week** early-warning model for hotspots.
-   → **R² = 0.90, Spearman = 0.96, ROC-AUC = 0.99** on a 2017–18 forward test.
-2. **Causal — did the subsidy work?** A **dose-response difference-in-differences** on the
-   continuous-intensity CRM rollout. → **β = +0.04 (p = 0.58)** — no dose-response reduction;
-   burning fell in aggregate, but not in proportion to the machines a district received.
+I set out to answer two questions from raw data, end to end:
 
-**→ Read [`reports/FINDINGS.md`](reports/FINDINGS.md) for the full write-up, results and
-figures.**
+1. **Where next?** A district-by-week early-warning model for the hotspots. It reaches
+   R² = 0.90, Spearman = 0.96 and ROC-AUC = 0.99 on a held-out 2017–18 test.
+2. **Did the subsidy work?** A dose-response difference-in-differences on the CRM rollout.
+   The answer is a null: β = +0.04 (p = 0.58). Burning did fall overall, but not in
+   proportion to how many machines a district actually received.
+
+The full write-up, with every figure and the robustness tables, is in
+[`reports/FINDINGS.md`](reports/FINDINGS.md).
 
 ## Results at a glance
 
 | Q1 — Can we see the hotspots coming? | Q2 — Did the subsidy reduce burning? |
 |:---:|:---:|
 | [![Predicted vs actual weekly district burning on the held-out 2017–18 seasons](reports/figures/05_pred_vs_actual.png)](reports/figures/05_pred_vs_actual.png) | [![Aggregate burning-season fire trend for Punjab and Haryana, 2012–2023](reports/figures/13_aggregate_trend.png)](reports/figures/13_aggregate_trend.png) |
-| The week-ahead model tracks the held-out **2017–18** seasons closely — **R² = 0.90, ROC-AUC = 0.99**. | Burning fell after 2018 (**Haryana −44%, Punjab −18%**), but the dose-response DiD is a **null (β = +0.04, p = 0.58)** — higher-dose districts didn't fall *more*, so the design can't credit the subsidy. |
+| The week-ahead model tracks the held-out 2017–18 seasons closely (R² = 0.90, ROC-AUC = 0.99). | Burning fell after 2018 (Haryana −44%, Punjab −18%), but the DiD is a null (β = +0.04, p = 0.58): higher-dose districts didn't fall any faster, so the design can't credit the subsidy. |
 
-## Headline findings
+## What I found
 
-- **Fires are extremely predictable — but *not* from weather.** Last week's burning +
-  the crop calendar + district identity carry ~97% of the model's signal; an 8-variable
-  ERA5 weather block moves R² by **+0.004** (and *hurts* a no-persistence model by
-  **−0.09**). Weather gates whether burning is *possible*, not *where* it concentrates.
-- **The subsidy was targeted at the worst-burning districts** (within-state rank
-  correlation **+0.86 Punjab / +0.69 Haryana**, +0.88 / +0.83 on FIRMS) — sound policy, but
-  a confound severe enough that even a within-district DiD can't fully clean it: pre-trends
-  are parallel when pooled, yet **fail within Punjab** (joint p = 0.005), where the real dose
-  variation lives.
-- **No evidence the subsidy *drove* the decline.** On a consistent NASA FIRMS outcome built
-  across **2012–2023**, the dose-response DiD is a precise null — **β = +0.04 (p = 0.58)**,
-  with every robustness specification zero-to-positive. Aggregate burning *did* fall
-  post-2018 (**Haryana −44%, Punjab −18%**), but a year-fixed-effect design can't credit the
-  subsidy for a *common* trend, and the *differential* test — did more-subsidised districts
-  fall *more*? — comes back empty. The honest read: *"no detectable dose-response effect, and
-  the quasi-experiment can't cleanly isolate one."*
+- **The fires are very predictable, just not from the weather.** Last week's burning, the
+  crop calendar, and which district it is together carry about 97% of the model's signal.
+  An eight-variable ERA5 weather block moves R² by +0.004, and it actually hurts a model
+  with no persistence term by 0.09. Weather decides whether burning is *possible*, not
+  where it concentrates.
+- **The money went to the districts already burning the most.** Within-state rank
+  correlation between machines and prior burning is +0.86 in Punjab and +0.69 in Haryana
+  (+0.88 / +0.83 on the FIRMS data). That's reasonable as policy but a hard confound for
+  the analysis: even a within-district DiD can't fully clean it. The pre-trends look
+  parallel when I pool the two states, yet they fail inside Punjab (joint p = 0.005), which
+  is exactly where the dose actually varies.
+- **There's no sign the subsidy drove the decline.** On a consistent NASA FIRMS outcome
+  spanning 2012–2023, the dose-response DiD comes back at β = +0.04 (p = 0.58), and every
+  robustness check I ran lands somewhere between zero and positive. Total Oct–Nov burning
+  did drop after 2018 (Haryana −44%, Punjab −18%), but a design with year fixed effects
+  can't credit the subsidy for a trend common to everyone, and the differential test — did
+  the more-subsidised districts fall further? — comes back empty. The fair reading is "no
+  detectable dose-response effect, and this quasi-experiment can't cleanly isolate one."
 
-## Why this is different
+## Why it's built this way
 
-- **Raw satellite grids + primary government records, not a pre-cleaned CSV.** Fire mass
-  comes from the **SAGE-IGP** daily 0.25° inventory; treatment from **PPCB MIS** and
-  **Haryana CRM** action-plan PDFs.
-- **A real policy-evaluation question** — with the identification problem (targeting)
-  diagnosed and handled, not hidden.
-- **It connects to something millions live through:** Delhi's November smog.
+- It runs on raw satellite grids and primary government records, not a tidy analysis CSV.
+  Fire mass comes from the SAGE-IGP 0.25° daily inventory; the treatment data I pulled by
+  hand from PPCB MIS and Haryana CRM action-plan PDFs.
+- It's a real policy-evaluation question, and I diagnose the identification problem (the
+  targeting) out in the open instead of hiding it.
+- And it connects to something millions of people live through every winter: Delhi's smog.
 
 ## Data sources
 
 | Layer | Source | Coverage | Access |
 |---|---|---|---|
-| Fire (burned dry matter) | **SAGE-IGP** (Liu et al. 2020, Harvard Dataverse, CC0) | 2003–2018, 0.25° daily | keyless |
-| Weather | **Open-Meteo ERA5 archive** | 2012–2018, daily→weekly | keyless |
-| Treatment (CRM machines) | **PPCB MIS** (Punjab, actual) + **Haryana CRM plan** (targets) | 2018–2022, district | primary PDFs/portal |
-| Geography | **geoBoundaries** ADM2 (CC-BY) | 43 districts | keyless |
-| Fire — active-fire counts *(causal outcome)* | **NASA FIRMS VIIRS-SNPP** archive | 2012–2023, 375 m → district×year | free `MAP_KEY` (emailed) |
+| Fire (burned dry matter) | SAGE-IGP (Liu et al. 2020, Harvard Dataverse, CC0) | 2003–2018, 0.25° daily | keyless |
+| Weather | Open-Meteo ERA5 archive | 2012–2018, daily→weekly | keyless |
+| Treatment (CRM machines) | PPCB MIS (Punjab, actual) + Haryana CRM plan (targets) | 2018–2022, district | primary PDFs/portal |
+| Geography | geoBoundaries ADM2 (CC-BY) | 43 districts | keyless |
+| Fire — active-fire counts *(causal outcome)* | NASA FIRMS VIIRS-SNPP archive | 2012–2023, 375 m → district×year | free `MAP_KEY` (emailed) |
 
 ## Repository layout
 
@@ -89,9 +93,10 @@ notebooks/       # 01_data → 02_eda → 03_prediction → 04_causal (narrative
 
 ## Notebooks
 
-Four executed notebooks narrate the project end to end — thin wrappers over the package
-that read the processed panels, call the analysis functions, and embed the figures. They
-ship **pre-run** (tables and plots baked in), so they render on GitHub without a kernel:
+Four notebooks walk through the project from the raw data to the causal effect. They're
+thin wrappers over the package: each one loads the processed panels, calls the same
+analysis functions, and embeds the figures. I commit them already run, so the tables and
+plots show up on GitHub without needing a kernel.
 
 | Notebook | What it covers |
 |---|---|
@@ -109,8 +114,8 @@ python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 ```
 
-Run the pipeline in order (each stage writes to `data/processed/` and is independently
-re-runnable):
+Run the pipeline in order. Each stage writes to `data/processed/` and can be re-run on its
+own:
 
 ```bash
 PYTHONPATH=src .venv/Scripts/python -m fire_policy.geo        # district layer
@@ -122,15 +127,16 @@ PYTHONPATH=src .venv/Scripts/python -m fire_policy.predict    # figures 05–08 
 PYTHONPATH=src .venv/Scripts/python -m fire_policy.causal     # figures 09–11 + DiD checks
 ```
 
-**Reproduce the causal effect.** The first run needs a free NASA FIRMS `MAP_KEY` (emailed on
-signup at <https://firms.modaps.eosdis.nasa.gov/api/area/>), put in `.env` as
-`FIRMS_MAP_KEY=...`; it caches the FIRMS panel, so later runs rebuild the DiD offline:
+**Reproducing the causal effect.** The first run needs a free NASA FIRMS `MAP_KEY` (emailed
+when you sign up at <https://firms.modaps.eosdis.nasa.gov/api/area/>), which goes in `.env`
+as `FIRMS_MAP_KEY=...`. It caches the FIRMS panel, so every run after the first rebuilds the
+DiD offline:
 
 ```bash
 PYTHONPATH=src .venv/Scripts/python -m fire_policy.effect     # β + event study + aggregate (figs 12–13)
 ```
 
-**Explore interactively** — try the **[live dashboard](https://stubble-fires-crm.streamlit.app/)**,
+**Exploring it interactively.** Try the [live dashboard](https://stubble-fires-crm.streamlit.app/),
 or run it locally (it reads the processed panels and figures):
 
 ```bash
@@ -147,23 +153,23 @@ PYTHONPATH=src .venv/Scripts/python -m streamlit run app/streamlit_app.py
 - [x] **Causal (design + pre-period)** — treatment doses, targeting analysis,
   parallel-trends event study, placebo DiDs (figs 09–11).
 - [x] **Causal (effect)** — consistent NASA FIRMS VIIRS outcome, 2012–2023 (516
-  district-years); dose-response DiD **β = +0.04 (p = 0.58)**, robustness table, dynamic
+  district-years); dose-response DiD β = +0.04 (p = 0.58), robustness table, dynamic
   event study, aggregate trend (figs 12–13). Result: no dose-response reduction.
 - [x] **Notebooks** — four executed, figure-embedded walk-throughs (01_data → 04_causal).
 - [x] **Dashboard** — Streamlit app: interactive early-warning hotspots + causal-design
   walk-through (`app/streamlit_app.py`).
 
-## Honest caveats
+## Caveats
 
-- **The causal result is a *null*, and an honestly confounded one.** The dose-response DiD
-  finds no reduction (β = +0.04, p = 0.58), but near-perfect targeting (ρ ≈ 0.88) and a
-  Punjab pre-trend that fails (p = 0.005) mean it can't be read as a clean causal zero — only
-  as "no evidence that machines-per-district cut burning." A year-fixed-effect design is also
-  blind to any uniform, state-wide effect of the scheme.
-- **Treatment comparability**: Punjab reports actual cumulative machines, Haryana one-year
-  targets (near-uniform across districts) — harmonised to a within-state z-score; the real
-  dose variation is Punjab's.
-- **Fire resolution**: 0.25° (~667 km²) is coarse for small districts; totals are
-  approximate and area-weighted.
-- **Weather adds little to prediction** — a finding, not a bug: the burn decision tracks
-  the harvest calendar and economics, not the weather.
+- **The result is a null, and a confounded one.** The dose-response DiD finds no reduction
+  (β = +0.04, p = 0.58), but near-perfect targeting (ρ ≈ 0.88) and a Punjab pre-trend that
+  fails (p = 0.005) mean I can't read it as a clean causal zero — only as "no evidence that
+  machines-per-district cut burning." With year fixed effects the design is also blind to a
+  uniform, state-wide effect of the scheme.
+- **The two states aren't measured the same way.** Punjab reports actual cumulative
+  machines; Haryana reports one-year targets that are near-uniform across districts. I
+  harmonise both to a within-state z-score, but the real dose variation is Punjab's.
+- **The fire grid is coarse.** SAGE-IGP is 0.25° (~667 km²), so district totals are
+  approximate and area-weighted, which smooths the smaller districts.
+- **Weather barely helps the prediction**, and that's a finding rather than a bug: the
+  decision to burn tracks the harvest calendar and economics, not the weather.
